@@ -1,6 +1,7 @@
 package bibsin
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -68,10 +69,28 @@ This line is an implicit comment.
 
 @Comment{This is another comment}
 `
-func TestParser(t *testing.T) {
-	n, err := Parse(nil, "tests/scholar20.bib")
+func parseTestFile(t *testing.T, filename string) Node {
+	t.Helper()
+	n, err := Parse(nil, filename, Options{})
 	tu.Equal(t, err, nil, tu.FailNow)
 	tu.NotNil(t, n, tu.FailNow)
-	tu.Equal(t, len(n.Children),20)
+	return n
+}
+
+func TestParser(t *testing.T) {
+	n := parseTestFile(t, "tests/scholar20.bib")
+	rn:= n.(*Record)
+	tu.Equal(t, len(rn.Children),20)
 	Print(os.Stdout, n)
+	//TODO: add tests 
+}
+
+
+func TestDedup(t *testing.T) {
+	n := parseTestFile(t, "tests/scholar-dup.bib")
+	 err := Deduplicate(n, DedupReport)
+	tu.NotNil(t, err, tu.FailNow)
+	duperr:= err.(DedupError)
+	tu.Equal(t, duperr.DuplicateSetCount,3)
+	fmt.Println(duperr)
 }
