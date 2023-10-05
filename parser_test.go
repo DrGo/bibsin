@@ -80,17 +80,64 @@ func parseTestFile(t *testing.T, filename string) Node {
 func TestParser(t *testing.T) {
 	n := parseTestFile(t, "tests/scholar20.bib")
 	rn:= n.(*Record)
-	tu.Equal(t, len(rn.Children),20)
+	tu.Equal(t, len(rn.children),20)
 	Print(os.Stdout, n)
 	//TODO: add tests 
 }
 
 
-func TestDedup(t *testing.T) {
-	n := parseTestFile(t, "tests/scholar-dup.bib")
-	 err := Deduplicate(n, DedupReport)
+// func TestDedup(t *testing.T) {
+// 	n := parseTestFile(t, "tests/scholar-dup.bib")
+// 	err := Deduplicate(n, DedupReport)
+// 	tu.NotNil(t, err, tu.FailNow)
+// 	duperr:= err.(DedupError)
+// 	tu.Equal(t, duperr.DuplicateSetCount,3)
+// 	fmt.Println(duperr)
+// }
+
+func TestOnlyASCIIAlphaNumeric(t *testing.T) {
+	tests := []struct {
+		in string
+		out string 
+	}{
+		{ "[test   name	\n", "testname", },
+		{ "[test123   :Name	\n", "test123name", },
+		{ "", "", },
+		{ "  ", "", },
+	}
+
+	for _, test := range tests {
+		t.Run(test.in, func(t *testing.T) {
+			tu.Equal(t, onlyASCIAlphaNumeric(test.in), test.out )
+		})
+	}
+}
+
+
+func TestDedupByContent(t *testing.T) {
+	n1 := parseTestFile(t, "tests/scholar-dup.bib")
+	res, err := DeduplicateByContents([]Node{n1},[]string{"year","journal"}, SetNoAction)
 	tu.NotNil(t, err, tu.FailNow)
+	tu.Equal(t, res, nil)
 	duperr:= err.(DedupError)
 	tu.Equal(t, duperr.DuplicateSetCount,3)
 	fmt.Println(duperr)
+
+	n2 := parseTestFile(t, "tests/scholar20.bib")
+	res, err = DeduplicateByContents([]Node{n1,n2},[]string{"year","journal"}, SetNoAction)
+	tu.NotNil(t, err, tu.FailNow)
+	tu.Equal(t, res, nil)
+	duperr= err.(DedupError)
+	tu.Equal(t, duperr.DuplicateSetCount,20)
+	fmt.Println(duperr)
+
+	res, err = DeduplicateByContents([]Node{n1,n2},[]string{"year","journal"}, SetIntersection)
+	tu.Equal(t, err, nil)
+	tu.NotNil(t, res, tu.FailNow)
+	tu.Equal(t, len(res.Children()), 20)
+
+	res, err = DeduplicateByContents([]Node{n1,n2},[]string{"year","journal"}, SetUnion)
+	tu.Equal(t, err, nil)
+	tu.NotNil(t, res, tu.FailNow)
+	tu.Equal(t, len(res.Children()), 20)
 }

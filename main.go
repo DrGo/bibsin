@@ -7,6 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"text/scanner"
+	"unicode"
+	"unicode/utf8"
+	"unsafe"
 )
 
 type Node interface {
@@ -14,31 +17,12 @@ type Node interface {
 	Line() int
 	Key() string
 	Value() string
-	BibtexRepr() string 
+	BibtexRepr() string
+	Children() []Node
 }
 
-// Node types.
-// const (
-// 	Root NodeType = iota
-// 	Record
-// 	Field
-// )
-
-// func (t NodeType) String() string {
-// 	switch t {
-// 	case Root:
-// 		return "Root"
-// 	case Record:
-// 		return "Record"
-// 	case Field:
-// 		return "Field"
-// 	default:
-// 		return fmt.Sprintf("NodeType(%d)", t)
-// 	}
-// }
-
 type Record struct {
-	Children []Node
+	children []Node
 	key      string // citation key; ROOT for root node
 	value    string // bibtex type
 	line     int
@@ -63,8 +47,22 @@ func (rec *Record) BibtexRepr() string {
 	return fmt.Sprintf("\n@%s{%s,\n", rec.key, rec.value)
 }
 
+func (n *Record) Children() []Node {
+	return n.children
+}
+
 func (n *Record) addChild(c Node) {
-	n.Children = append(n.Children, c)
+	n.children = append(n.children, c)
+}
+
+func (n *Record) Field(fieldName string) string {
+	for _, fld := range n.children {
+		fld := fld.(*Field)
+		if fld.key == fieldName {
+			return fld.value
+		}
+	}
+	return ""
 }
 
 type Field struct {
@@ -89,7 +87,15 @@ func (rec *Field) Value() string {
 }
 
 func (rec *Field) BibtexRepr() string {
-	return fmt.Sprintf( "%s={%s}", rec.key, rec.value)
+	return fmt.Sprintf("%s={%s}", rec.key, rec.value)
+}
+
+func (n *Field) Children() []Node {
+	return nil
+}
+
+func newRoot(fileName string) *Record {
+	return &Record{key: "__ROOT__", value: fileName}
 }
 
 func Print(w io.Writer, n Node) error {
@@ -97,16 +103,16 @@ func Print(w io.Writer, n Node) error {
 	switch n := n.(type) {
 	case *Record:
 		if n.IsRoot() {
-			for _, c := range n.Children {
+			for _, c := range n.children {
 				Print(w, c)
 			}
 			return nil
 		}
 		// record
 		fmt.Fprintf(w, n.BibtexRepr())
-		for i, c := range n.Children {
+		for i, c := range n.children {
 			Print(w, c)
-			if i < len(n.Children) {
+			if i < len(n.children) {
 				fmt.Fprintln(w, ",")
 			}
 		}
@@ -136,6 +142,26 @@ const (
 	EQUAL      rune = '='
 	AT         rune = '@'
 )
+
+// BNF
+// Database        ::= (Junk '@' Entry)*
+// Junk                ::= .*?
+// Entry        ::= Record
+//                |   Comment
+//                |   String
+//                |   Preamble
+// Comment        ::= "comment" [^\n]* \n                -- ignored
+// String        ::= "string" '{' Field* '}'
+// Preamble        ::= "preamble" '{' .* '}'         -- (balanced)
+// Record        ::= Type '{' Key ',' Field* '}'
+//                |   Type '(' Key ',' Field* ')' -- not handled
+// Type                ::= Name
+// Key                ::= Name
+// Field        ::= Name '=' Value
+// Name                ::= [^\s\"#%'(){}]*
+// Value        ::= [0-9]+
+//                |   '"' ([^'"']|\\'"')* '"'
+//                |   '{' .* '}'                         -- (balanced)
 
 // comment = [^@]*
 // ws = [ \t\n]*
@@ -179,8 +205,8 @@ func Parse(r io.Reader, fileName string, opt Options) (Node, error) {
 			return nil, fmt.Errorf("can't process file %s: %w", fileName, err)
 		}
 	}
-	root := &Record{key: "__ROOT__"}
-	node := root
+	root := newRoot(fileName)
+	currentNode := root
 	var scanErr error
 	var s scanner.Scanner
 	result := func(msg string) (Node, error) {
@@ -195,24 +221,22 @@ func Parse(r io.Reader, fileName string, opt Options) (Node, error) {
 	// s.Whitespace ^=  1<<'\n' //do not skip new lines
 	s.Filename = fileName
 	var b strings.Builder
+	tok := s.Scan() //get the first token 
 loop:
 	for {
-		tok := s.Scan()
-		// fmt.Printf("%s: %s\n", s.Position, s.TokenText())
-		if tok == EOF {
-			//TODO: check for unexpected eof
-			break
-		}
-		if scanErr != nil {
-			return root, scanErr
-		}
-		// parsing depends on location in file
-		if node.IsRoot() {
-			// only allowing records
-			if tok != AT {
-				return result("expected a record")
+		// parsing depends on location in file; records only legal at the highest level 
+		if currentNode.IsRoot() {
+			//ignore anything that does not start by @
+			for ; tok != EOF && tok != AT; tok = s.Scan() {
 			}
-			lineNum := s.Pos().Line
+			// fmt.Printf("%s: %s\n", s.Position, s.TokenText())
+			if tok == EOF {
+				//TODO: check for unexpected eof
+				break loop
+			}
+			if scanErr != nil {
+				return root, scanErr
+			}
 			// scan the commdand/entry type identifier
 			if s.Scan() != IDENTIFIER {
 				return result("expected identifier")
@@ -231,11 +255,12 @@ loop:
 			if s.Scan() != COMMA {
 				return result("expected ,")
 			}
-			//create a new  node
-			node = &Record{key: citeKey, value: citeType, line: lineNum}
+			//create a new record and set as current node
+			currentNode = &Record{key: citeKey, value: citeType, line: s.Pos().Line}
+			tok = s.Scan()
 			continue
 		}
-		// field started
+		// we must be in a record so parse fields 
 		if tok != IDENTIFIER {
 			return result("expected field name")
 		}
@@ -246,12 +271,15 @@ loop:
 		}
 		if s.Scan() != LBRACE {
 			return result("expected {")
-		}
+		} 
+		// start parsing value 
 		b.Reset()
 		level := 0
 	valueLoop:
 		for tok = s.Next(); tok != EOF; tok = s.Next() {
 			switch tok {
+			case EOF:				
+				return result("unterminated value")	
 			case LBRACE:
 				level++
 			case RBRACE:
@@ -266,37 +294,43 @@ loop:
 				b.WriteRune(tok)
 			}
 		}
-		//either next token is EOF or RBRACE
-		if tok == EOF {
-			continue loop
-		}
 		// comma is optional before the record's closing RBRACE,
 		// but here always optional
 		// fmt.Println(s.TokenText(), s.Peek())
 		fld := &Field{key: fieldName, value: b.String(), line: lineNum}
 		switch s.Scan() {
 		case COMMA:
-			node.addChild(fld)
-		case RBRACE: //end of record
-			node.addChild(fld)
-			root.addChild(node)
-			node = root
+			currentNode.addChild(fld)
+		case RBRACE: //parsed the last field, switch current node to root  
+			currentNode.addChild(fld)
+			root.addChild(currentNode)
+			currentNode = root
 		default:
 			return result("expected , or }")
 		}
+		tok = s.Scan()
 	} //for
 	return root, nil
 }
 
-type DedupActionType int8
+type SetActionType int8
 
 const (
-	DedupReport DedupActionType = iota
-	DedupKeepFirst
-	DedupUpdateKeys
+	SetNoAction SetActionType = iota
+	// SetIntersection finds records common to one or more sets and
+	// returns the record that belongs to the first set
+	// if one file, SetIntersection results in a set that includes the first record
+	SetIntersection
+	SetUnion
 )
 
-type DedupMap = map[string][]Node
+type NodeInfo struct {
+	Node   Node
+	Parent Node
+}
+
+type DedupMap = map[string][]NodeInfo
+
 type DedupError struct {
 	DuplicateSetCount int
 	DuplicateSet      DedupMap
@@ -308,11 +342,12 @@ func (err DedupError) Error() string {
 	}
 	var sb strings.Builder
 	sb.WriteString(strconv.Itoa(err.DuplicateSetCount) + " duplicate sets found\n")
-	for _, nodes := range err.DuplicateSet {
+	for idxTerm, nodes := range err.DuplicateSet { //
 		if ndup := len(nodes); ndup > 1 {
-			sb.WriteString(fmt.Sprintf("[%s] has %d occurrences in lines \n", nodes[0].Key(), ndup))
+			sb.WriteString(fmt.Sprintf("[%s] has %d occurrences in lines \n", idxTerm, ndup))
 			for _, n := range nodes {
-				sb.WriteString(strconv.Itoa(n.Line()) + " ")
+				// write filename: line
+				sb.WriteString(fmt.Sprintf("%s:%d\n", n.Parent.Value(), n.Node.Line()))
 			}
 			sb.WriteByte('\n')
 		}
@@ -320,30 +355,164 @@ func (err DedupError) Error() string {
 	return sb.String()
 }
 
-func Deduplicate(root Node, action DedupActionType) error {
-	if !root.IsRoot() {
-		return fmt.Errorf("cannot deduplicate non-root nodes")
+// func Deduplicate(root Node, action DedupActionType) error {
+// 	if !root.IsRoot() {
+// 		return fmt.Errorf("cannot deduplicate non-root nodes")
+// 	}
+// 	rn := root.(*Record)
+// 	n := len(rn.children)
+// 	if n == 0 {
+// 		return fmt.Errorf("empty list")
+// 	}
+// 	set := make(DedupMap, n)
+// 	for _, c := range rn.children {
+// 		set[c.Key()] = append(set[c.Key()], c)
+// 	}
+// 	duplicateSets := 0
+// 	for _, nodes := range set {
+// 		if len(nodes) > 1 {
+// 			duplicateSets++
+// 		}
+// 	}
+// 	if action == DedupReport {
+// 		if duplicateSets == 0 {
+// 			return nil
+// 		}
+// 		return DedupError{DuplicateSetCount: duplicateSets, DuplicateSet: set}
+// 	}
+
+// 	return nil
+// }
+
+func DeduplicateByContents(nodes []Node, fldNames []string, action SetActionType) (Node, error) {
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("nothing to deduplicate")
 	}
-	rn := root.(*Record)
-	n := len(rn.Children)
-	if n == 0 {
-		return fmt.Errorf("empty list")
+	var sb strings.Builder
+	indexEntry := func(n Node, fldNames []string) string {
+		rec := n.(*Record)
+		sb.Reset()
+		for _, fldname := range fldNames {
+			sb.WriteString(onlyASCIAlphaNumeric(rec.Field(fldname)))
+		}
+		return sb.String()
 	}
-	set := make(DedupMap, n)
-	for _, c := range rn.Children {
-		set[c.Key()] = append(set[c.Key()], c)
+
+	set := make(DedupMap, len(nodes[0].Children())*len(nodes))
+	for _, r := range nodes {
+		for _, c := range r.Children() {
+			idx := indexEntry(c, fldNames)
+			set[idx] = append(set[idx], NodeInfo{c, r})
+		}
 	}
-	if action == DedupReport {
-		duplicateSets := 0
+
+	duplicateSets := 0
+	for _, nodes := range set {
+		if len(nodes) > 1 {
+			duplicateSets++
+		}
+	}
+	if action == SetNoAction {
+		if duplicateSets == 0 {
+			return nil, nil
+		}
+		return nil, DedupError{DuplicateSetCount: duplicateSets, DuplicateSet: set}
+	}
+	if action == SetIntersection {
+		if duplicateSets == 0 {
+			return nil, fmt.Errorf("no common records")
+		}
+		res := newRoot("intersection.bib")
 		for _, nodes := range set {
-			if len(nodes) > 1 {
-				duplicateSets++
+			if ndup := len(nodes); ndup > 1 { //duplicates
+				res.addChild(nodes[0].Node)
 			}
 		}
-		if duplicateSets == 0 {
-			return nil
-		}
-		return DedupError{DuplicateSetCount: duplicateSets, DuplicateSet: set}
+		return res, nil
 	}
-	return nil
+	if action == SetUnion {
+		res := newRoot("union.bib")
+		for _, nodes := range set {
+			res.addChild(nodes[0].Node)
+		}
+		return res, nil
+	}
+	return nil, fmt.Errorf("invalid set action")
 }
+
+func lower(ch rune) rune { return ('a' - 'A') | ch } // returns lower-case ch iff ch is ASCII letter
+func isLetter(ch rune) bool {
+	return 'a' <= ch && ch <= 'z' || ch >= utf8.RuneSelf && unicode.IsLetter(ch)
+}
+func ByteSlice2String(bs []byte) string {
+	if len(bs) == 0 {
+		return ""
+	}
+	return unsafe.String(unsafe.SliceData(bs), len(bs))
+}
+
+func isASCIIAlphaNumeric(ch rune) bool {
+	return 'a' <= ch && ch <= 'z' || '0' <= ch && ch <= '9'
+}
+func onlyASCIAlphaNumeric(s string) string {
+	b := make([]byte, len(s))
+	i := 0
+	for _, ch := range s {
+		ch := lower(ch)
+		if isASCIIAlphaNumeric(ch) {
+			b[i] = byte(ch)
+			i++
+		}
+	}
+	return ByteSlice2String(b[:i])
+}
+
+//translations for latex escapes
+//         _latex.Add("\\`{o}", "ò");
+//         _latex.Add("\\'{o}", "ó");
+//         _latex.Add("\\^{o}", "ô");
+//         _latex.Add("\\\"{o}", "ö");
+//         _latex.Add("\\H{o}", "ő");
+//         _latex.Add("\\~{o}", "õ");
+//         _latex.Add("\\c{c}", "ç");
+//         _latex.Add("\\k{a}", "ą");
+//         _latex.Add("\\l{}", "ł");
+//         _latex.Add("\\={o}", "ō");
+//         _latex.Add("\\b{o}", "o");
+//         _latex.Add("\\.{o}", "ȯ");
+//         _latex.Add("\\d{u}", "ụ");
+//         _latex.Add("\\r{a}", "å");
+//         _latex.Add("\\u{o}", "ŏ");
+//         _latex.Add("\\v{s}", "š");
+//         _latex.Add("\\t{oo}", "o͡o");
+//         _latex.Add("\\o", "ø");
+
+//         _latex.Add("\\%", "%");
+//         _latex.Add("\\$", "$");
+//         _latex.Add("\\{", "{");
+//         _latex.Add("\\_", "_");
+//         _latex.Add("\\P", "¶");
+//         _latex.Add("\\ddag", "‡");
+//         _latex.Add("\\textbar", "|");
+//         _latex.Add("\\textgreater", ">");
+//         _latex.Add("\\textendash", "–");
+//         _latex.Add("\\texttrademark", "™");
+//         _latex.Add("\\textexclamdown", "¡");
+//         _latex.Add("\\textsuperscript{ a}", "a");
+//         _latex.Add("\\pounds", "£");
+//         _latex.Add("\\#", "#");
+//         _latex.Add("\\&", "&");
+//         _latex.Add("\\}", "}");
+//         _latex.Add("\\S", "§");
+//         _latex.Add("\\dag", "†");
+//         _latex.Add("\\textbackslash", "\\");
+//         _latex.Add("\\textless", "<");
+//         _latex.Add("\\textemdash", "—");
+//         _latex.Add("\\textregistered", "®");
+//         _latex.Add("\\textquestiondown", "¿");
+//         _latex.Add("\\textcircled{ a}", "ⓐ");
+//         _latex.Add("\\copyright", "©");
+
+//         _latex.Add("$\\backslash$", "\\");
+//         _latex.Add("\\'{e}", "ë");
+//         _latex.Add("\\'{i}", "ë");
