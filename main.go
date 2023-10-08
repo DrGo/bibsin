@@ -1,131 +1,15 @@
 package bibsin
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
-	"strconv"
+	"slices"
 	"strings"
 	"text/scanner"
 	"unicode"
-	"unicode/utf8"
-	"unsafe"
 )
-
-type Node interface {
-	IsRoot() bool
-	Line() int
-	Key() string
-	Value() string
-	BibtexRepr() string
-	Children() []Node
-}
-
-type Record struct {
-	children []Node
-	key      string // citation key; ROOT for root node
-	value    string // bibtex type
-	line     int
-}
-
-func (rec *Record) IsRoot() bool {
-	return rec.key == "__ROOT__"
-}
-
-func (rec *Record) Line() int {
-	return rec.line
-}
-
-func (rec *Record) Key() string {
-	return rec.key
-}
-func (rec *Record) Value() string {
-	return rec.value
-}
-
-func (rec *Record) BibtexRepr() string {
-	return fmt.Sprintf("\n@%s{%s,\n", rec.key, rec.value)
-}
-
-func (n *Record) Children() []Node {
-	return n.children
-}
-
-func (n *Record) addChild(c Node) {
-	n.children = append(n.children, c)
-}
-
-func (n *Record) Field(fieldName string) string {
-	for _, fld := range n.children {
-		fld := fld.(*Field)
-		if fld.key == fieldName {
-			return fld.value
-		}
-	}
-	return ""
-}
-
-type Field struct {
-	key   string // name of field
-	value string // value of field
-	line  int
-}
-
-func (rec *Field) IsRoot() bool {
-	return false
-}
-
-func (rec *Field) Line() int {
-	return rec.line
-}
-
-func (rec *Field) Key() string {
-	return rec.key
-}
-func (rec *Field) Value() string {
-	return rec.value
-}
-
-func (rec *Field) BibtexRepr() string {
-	return fmt.Sprintf("%s={%s}", rec.key, rec.value)
-}
-
-func (n *Field) Children() []Node {
-	return nil
-}
-
-func newRoot(fileName string) *Record {
-	return &Record{key: "__ROOT__", value: fileName}
-}
-
-func Print(w io.Writer, n Node) error {
-	//FIXME: check for errors
-	switch n := n.(type) {
-	case *Record:
-		if n.IsRoot() {
-			for _, c := range n.children {
-				Print(w, c)
-			}
-			return nil
-		}
-		// record
-		fmt.Fprintf(w, n.BibtexRepr())
-		for i, c := range n.children {
-			Print(w, c)
-			if i < len(n.children) {
-				fmt.Fprintln(w, ",")
-			}
-		}
-		fmt.Fprintln(w, "}")
-	case *Field:
-		fmt.Fprintf(w, n.BibtexRepr())
-	default:
-		return fmt.Errorf("Unknown Node type")
-	}
-	return nil
-}
-
-type Entry map[string]string
 
 const (
 	EOF        rune = scanner.EOF
@@ -143,52 +27,6 @@ const (
 	AT         rune = '@'
 )
 
-// BNF
-// Database        ::= (Junk '@' Entry)*
-// Junk                ::= .*?
-// Entry        ::= Record
-//                |   Comment
-//                |   String
-//                |   Preamble
-// Comment        ::= "comment" [^\n]* \n                -- ignored
-// String        ::= "string" '{' Field* '}'
-// Preamble        ::= "preamble" '{' .* '}'         -- (balanced)
-// Record        ::= Type '{' Key ',' Field* '}'
-//                |   Type '(' Key ',' Field* ')' -- not handled
-// Type                ::= Name
-// Key                ::= Name
-// Field        ::= Name '=' Value
-// Name                ::= [^\s\"#%'(){}]*
-// Value        ::= [0-9]+
-//                |   '"' ([^'"']|\\'"')* '"'
-//                |   '{' .* '}'                         -- (balanced)
-
-// comment = [^@]*
-// ws = [ \t\n]*
-// ident = ![0-9] (![ \t"#%'(),={}] [\x20-\x7f])+
-// command_or_entry = '@' ws (comment / preamble / string / entry)
-// comment = 'comment'
-// preamble = 'preamble' ws ( '{' ws preamble_body ws '}'
-//                          / '(' ws preamble_body ws ')' )
-// preamble_body = value
-// string = 'string' ws ( '{' ws string_body ws '}'
-//                      / '(' ws string_body ws ')' )
-// string_body = ident ws '=' ws value
-// entry = ident ws ( '{' ws key ws entry_body? ws '}'
-//                  / '(' ws key_paren ws entry_body? ws ')' )
-// key = [^, \t}\n]*
-// key_paren = [^, \t\n]*
-// entry_body = (',' ws ident ws '=' ws value ws)* ','?
-// value = piece (ws '#' ws piece)*
-// piece
-//     = [0-9]+
-//     / '{' balanced* '}'
-//     / '"' (!'"' balanced)* '"'
-//     / ident
-// balanced
-//     = '{' balanced* '}'
-//     / [^{}]
-
 type Options struct {
 }
 
@@ -196,14 +34,15 @@ type Options struct {
 // a name of a file.
 func Parse(r io.Reader, fileName string, opt Options) (Node, error) {
 	if r == nil {
-		var err error
 		if fileName == "" {
 			return nil, fmt.Errorf("nothign to parse")
 		}
-		r, err = os.Open(fileName)
+		f, err := os.Open(fileName)
 		if err != nil {
 			return nil, fmt.Errorf("can't process file %s: %w", fileName, err)
 		}
+		defer f.Close()
+		r = f
 	}
 	root := newRoot(fileName)
 	currentNode := root
@@ -221,10 +60,10 @@ func Parse(r io.Reader, fileName string, opt Options) (Node, error) {
 	// s.Whitespace ^=  1<<'\n' //do not skip new lines
 	s.Filename = fileName
 	var b strings.Builder
-	tok := s.Scan() //get the first token 
+	tok := s.Scan() //get the first token
 loop:
 	for {
-		// parsing depends on location in file; records only legal at the highest level 
+		// parsing depends on location in file; records only legal at the highest level
 		if currentNode.IsRoot() {
 			//ignore anything that does not start by @
 			for ; tok != EOF && tok != AT; tok = s.Scan() {
@@ -237,30 +76,45 @@ loop:
 			if scanErr != nil {
 				return root, scanErr
 			}
+			// we must have parsed @
+			if s.Pos().Column> 1 {
+				continue loop // only relevant if it is the first char
+			}
 			// scan the commdand/entry type identifier
 			if s.Scan() != IDENTIFIER {
 				return result("expected identifier")
 			}
 			citeType := s.TokenText()
-			//TODO: reject commands
-			// only accepting database entries
+
 			if s.Scan() != LBRACE {
 				return result("expected {")
 			}
-			// scan the commdand/entry type identifier
-			if s.Scan() != IDENTIFIER {
-				return result("expected citation key")
-			}
-			citeKey := s.TokenText()
-			if s.Scan() != COMMA {
-				return result("expected ,")
-			}
+			// read citekey which can be anything till comma or whitespace
+			b.Reset()
+		refLoop:
+			for tok = s.Next(); ; tok = s.Next() {
+				switch {
+				case tok == EOF:
+					return result("unterminated key")
+				case tok == COMMA:
+					break refLoop
+				case unicode.IsSpace(tok):
+					break refLoop
+				default:
+					b.WriteRune(tok)
+				}
+			} //refLoop
+			citeKey := b.String()
+			//TODO: process commands 'comment' and 'premable' read value
+			// 'string' (a macro) read value and store in a map
+			//TODO: allow use of ( instead of {; set righ delimiter to ) or }
+			// only accepting database entries
 			//create a new record and set as current node
 			currentNode = &Record{key: citeKey, value: citeType, line: s.Pos().Line}
 			tok = s.Scan()
 			continue
 		}
-		// we must be in a record so parse fields 
+		// we must be in a record so parse fields
 		if tok != IDENTIFIER {
 			return result("expected field name")
 		}
@@ -269,17 +123,19 @@ loop:
 		if s.Scan() != EQUAL {
 			return result("expected =")
 		}
+		//TODO: allow " instead of { and if the entire value is digits no delimiter needed
+		//algo: check for { " or digit
 		if s.Scan() != LBRACE {
 			return result("expected {")
-		} 
-		// start parsing value 
+		}
+		// start parsing value
 		b.Reset()
 		level := 0
 	valueLoop:
 		for tok = s.Next(); tok != EOF; tok = s.Next() {
 			switch tok {
-			case EOF:				
-				return result("unterminated value")	
+			case EOF:
+				return result("unterminated value")
 			case LBRACE:
 				level++
 			case RBRACE:
@@ -293,22 +149,28 @@ loop:
 			default:
 				b.WriteRune(tok)
 			}
-		}
-		// comma is optional before the record's closing RBRACE,
-		// but here always optional
+		} //valueLoop
 		// fmt.Println(s.TokenText(), s.Peek())
 		fld := &Field{key: fieldName, value: b.String(), line: lineNum}
-		switch s.Scan() {
-		case COMMA:
+		// comma is normally optional before the record's closing RBRACE,
+		// but here always it is always optional
+		tok = s.Scan() // expecting , or } or ,}
+		if tok == COMMA {
 			currentNode.addChild(fld)
-		case RBRACE: //parsed the last field, switch current node to root  
+			tok = s.Scan()
+			if tok == RBRACE { //parsed the last field, switch current node to root
+				root.addChild(currentNode)
+				currentNode = root
+			} else {
+				continue loop // new field
+			}
+		} else if tok == RBRACE { // field with no comma
 			currentNode.addChild(fld)
 			root.addChild(currentNode)
 			currentNode = root
-		default:
+		} else {
 			return result("expected , or }")
 		}
-		tok = s.Scan()
 	} //for
 	return root, nil
 }
@@ -317,155 +179,196 @@ type SetActionType int8
 
 const (
 	SetNoAction SetActionType = iota
-	// SetIntersection finds records common to one or more sets and
+	// SetIntersect finds records common to one or more sets and
 	// returns the record that belongs to the first set
-	// if one file, SetIntersection results in a set that includes the first record
-	SetIntersection
+	// if one file, SetIntersect results in a set that includes the first record
+	SetIntersect
 	SetUnion
+	SetConcat
 )
 
 type NodeInfo struct {
-	Node   Node
-	Parent Node
+	Node   *Record
+	Parent *Record
 }
 
 type DedupMap = map[string][]NodeInfo
 
-type DedupError struct {
+type DedupReport struct {
 	DuplicateSetCount int
 	DuplicateSet      DedupMap
+	ResultSetCount    int
 }
 
-func (err DedupError) Error() string {
-	if err.DuplicateSetCount == 0 {
-		return ""
+func (dr DedupReport) Print(w io.Writer) (err error) {
+	if dr.DuplicateSetCount == 0 {
+		return nil
 	}
-	var sb strings.Builder
-	sb.WriteString(strconv.Itoa(err.DuplicateSetCount) + " duplicate sets found\n")
-	for idxTerm, nodes := range err.DuplicateSet { //
+	fmt.Fprintf(w, "%d duplicate sets found\n", dr.DuplicateSetCount)
+	for idxTerm, nodes := range dr.DuplicateSet { //
 		if ndup := len(nodes); ndup > 1 {
-			sb.WriteString(fmt.Sprintf("[%s] has %d occurrences in lines \n", idxTerm, ndup))
+			_, err = fmt.Fprintf(w, "%s\n[%s] has %d occurrences in lines \n", strings.Repeat("*", 60), idxTerm, ndup)
 			for _, n := range nodes {
 				// write filename: line
-				sb.WriteString(fmt.Sprintf("%s:%d\n", n.Parent.Value(), n.Node.Line()))
+				_, err = fmt.Fprintf(w, "%s:%d\n", n.Parent.Value(), n.Node.Line())
+				err = Print(w, n.Node)
 			}
-			sb.WriteByte('\n')
 		}
 	}
-	return sb.String()
+	if err != nil {
+		fmt.Printf("%d records processed\n", dr.ResultSetCount)
+	}
+	return err
 }
 
-// func Deduplicate(root Node, action DedupActionType) error {
-// 	if !root.IsRoot() {
-// 		return fmt.Errorf("cannot deduplicate non-root nodes")
-// 	}
-// 	rn := root.(*Record)
-// 	n := len(rn.children)
-// 	if n == 0 {
-// 		return fmt.Errorf("empty list")
-// 	}
-// 	set := make(DedupMap, n)
-// 	for _, c := range rn.children {
-// 		set[c.Key()] = append(set[c.Key()], c)
-// 	}
-// 	duplicateSets := 0
-// 	for _, nodes := range set {
-// 		if len(nodes) > 1 {
-// 			duplicateSets++
-// 		}
-// 	}
-// 	if action == DedupReport {
-// 		if duplicateSets == 0 {
-// 			return nil
-// 		}
-// 		return DedupError{DuplicateSetCount: duplicateSets, DuplicateSet: set}
-// 	}
-
-// 	return nil
-// }
-
-func DeduplicateByContents(nodes []Node, fldNames []string, action SetActionType) (Node, error) {
-	if len(nodes) == 0 {
-		return nil, fmt.Errorf("nothing to deduplicate")
+func (dr DedupReport) String() string {
+	var b = new(bytes.Buffer)
+	if err:= dr.Print(b); err != nil {
+		b.WriteString("error: "+ err.Error())
 	}
+	return b.String()
+}
+
+// func Query(nodes []Node, query string)(Node, error) {
+// 	for _, r := range nodes {
+// 		for _, c := range r.Children() {
+// }
+// indexEntry returns a string concating values of fields
+func indexEntry(n Node, fldNames []string, raw bool) string {
 	var sb strings.Builder
-	indexEntry := func(n Node, fldNames []string) string {
-		rec := n.(*Record)
-		sb.Reset()
-		for _, fldname := range fldNames {
-			sb.WriteString(onlyASCIAlphaNumeric(rec.Field(fldname)))
-		}
+	rec := n.(*Record)
+	for _, fldname := range fldNames {
+		sb.WriteString(rec.Field(fldname))
+	}
+	if raw {
 		return sb.String()
 	}
+	return onlyASCIAlphaNumeric(sb.String())
+}
 
-	set := make(DedupMap, len(nodes[0].Children())*len(nodes))
+// Deduplicate performs various set operations on one or more ref sets
+// using the concatinated values of field names. If no fields specified,
+// citekey is used to deduplicate the set.
+// if no error encountered, it returns a DedupReport struct if action== SetNoAction
+// and additionally a set of processed refs if action != SetNoAction
+func Deduplicate(nodes []Node, fldNames []string, action SetActionType) (Node, *DedupReport, error) {
+	if len(nodes)*len(nodes[0].Children()) == 0 {
+		return nil, nil, fmt.Errorf("nothing to deduplicate")
+	}
+	hasFields := len(fldNames) == 0
+	citekey := !hasFields || slices.Contains(fldNames, "citekey")
+	dupSet := make(DedupMap, len(nodes[0].Children())*len(nodes))
 	for _, r := range nodes {
 		for _, c := range r.Children() {
-			idx := indexEntry(c, fldNames)
-			set[idx] = append(set[idx], NodeInfo{c, r})
+			idx := ""
+			if hasFields {
+				indexEntry(c, fldNames, false)
+			}
+			if citekey {
+				idx = idx + c.Key()
+			}
+			dupSet[idx] = append(dupSet[idx], NodeInfo{c.(*Record), r.(*Record)})
 		}
 	}
-
 	duplicateSets := 0
-	for _, nodes := range set {
+	for _, nodes := range dupSet {
 		if len(nodes) > 1 {
 			duplicateSets++
 		}
 	}
+	dr := &DedupReport{DuplicateSetCount: duplicateSets, DuplicateSet: dupSet}
 	if action == SetNoAction {
-		if duplicateSets == 0 {
-			return nil, nil
-		}
-		return nil, DedupError{DuplicateSetCount: duplicateSets, DuplicateSet: set}
+		return nil, dr, nil
 	}
-	if action == SetIntersection {
+	if action == SetIntersect {
 		if duplicateSets == 0 {
-			return nil, fmt.Errorf("no common records")
+			return nil, nil, fmt.Errorf("no common records")
 		}
 		res := newRoot("intersection.bib")
-		for _, nodes := range set {
+		for _, nodes := range dupSet {
 			if ndup := len(nodes); ndup > 1 { //duplicates
-				res.addChild(nodes[0].Node)
+				res.addChild(nodes[0].Node) //print the first in the set
+				dr.ResultSetCount++
 			}
 		}
-		return res, nil
+		return res, dr, nil
 	}
 	if action == SetUnion {
 		res := newRoot("union.bib")
-		for _, nodes := range set {
+		for _, nodes := range dupSet {
 			res.addChild(nodes[0].Node)
+			dr.ResultSetCount++
 		}
-		return res, nil
+		return res, dr, nil
 	}
-	return nil, fmt.Errorf("invalid set action")
+	return nil, nil, fmt.Errorf("invalid set action")
 }
 
-func lower(ch rune) rune { return ('a' - 'A') | ch } // returns lower-case ch iff ch is ASCII letter
-func isLetter(ch rune) bool {
-	return 'a' <= ch && ch <= 'z' || ch >= utf8.RuneSelf && unicode.IsLetter(ch)
-}
-func ByteSlice2String(bs []byte) string {
-	if len(bs) == 0 {
-		return ""
+// ValidKeys checks if all records have citekeys and all are unique
+func ValidKeys(n Node) bool {
+	_, dr, err := Deduplicate([]Node{n}, []string{}, SetNoAction)
+	if err != nil {
+		return true // only error is nothign to duplicate
 	}
-	return unsafe.String(unsafe.SliceData(bs), len(bs))
+	return dr.DuplicateSetCount == 0
 }
 
-func isASCIIAlphaNumeric(ch rune) bool {
-	return 'a' <= ch && ch <= 'z' || '0' <= ch && ch <= '9'
+// ScholarCiteKey generates a new key using last name of the first author + pub year+
+// first word of the title + first letter of article type + page or volume #
+func NewCiteKey(rec *Record) string{
+	var sb strings.Builder
+	word, _,_ :=strings.Cut(rec.Field("author"), ",")
+	sb.WriteString(strings.ToLower(word))
+	sb.WriteString(rec.Field("year"))	
+	word, _,_ =strings.Cut(rec.Field("title"), " ")
+	sb.WriteString(strings.ToLower(word))
+		b :=byte('x')
+	if rec.value != "" {
+		b= rec.value[0] 	 
+	}
+	sb.WriteByte(b)
+	sb.WriteString(rec.Field("pages")+ rec.Field("volume"))
+	return sb.String()
 }
-func onlyASCIAlphaNumeric(s string) string {
-	b := make([]byte, len(s))
-	i := 0
-	for _, ch := range s {
-		ch := lower(ch)
-		if isASCIIAlphaNumeric(ch) {
-			b[i] = byte(ch)
-			i++
+
+// Fixkeys ensures that every record has a unique key
+// contents of fldnames will be used to create a unique key
+// with a,b,c etc added to ensure uniqueness; if len(fldnames)== 0 
+// standard algorithm to create new citekeys. if all is true
+// all keys are replaced not just duplicate records  
+func FixKeys(n Node, fldnames []string, all bool) (*DedupReport, error) {
+	useStd := len(fldnames) == 0
+	ns := n.(*Record).children 	
+	for i := 0; i < len(ns); i++ {		
+		rec := ns[i].(*Record)
+		if all || rec.key == "" {
+			if useStd {
+				rec.key = NewCiteKey(rec)
+			} else {	
+				rec.key = indexEntry(rec, fldnames, true)
+			}	
 		}
 	}
-	return ByteSlice2String(b[:i])
+	_, dr, err := Deduplicate([]Node{n}, []string{}, SetNoAction)
+	if err != nil {
+		return nil, err
+	}
+	if dr.DuplicateSetCount == 0 {
+		return nil, nil
+	}
+	for idxTerm, nodes := range dr.DuplicateSet {
+		if ndup := len(nodes); ndup > 1 {
+			//TODO: may not work for dataset with many duplicates
+			for i := 1; i < ndup; i++ {
+				nodes[i].Node.key = idxTerm + string(rune(64+i)) //add A,B,C etc
+			}
+		}
+	}
+	return dr, nil
 }
+
+// TODO: process tex
+// see https://github.com/aclements/biblib/blob/ab0e857b9198fe425ec9b02fcc293b5d9fd0c406/biblib/algo.py#L327
 
 //translations for latex escapes
 //         _latex.Add("\\`{o}", "ò");
