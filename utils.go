@@ -50,3 +50,48 @@ func saveWith(filename string, w func(io.Writer) error) (err error) {
 	}()
 	return w(f)
 }
+
+
+func trimAffixes(b []byte, spacesOnly bool) string{
+	start, end:= 0, len(b) 
+	if end == 0 {
+		return ""
+	}
+	found:= false 
+loop:
+	for ; start < end; start++ {
+		switch b[start] {
+		case ' ', '\t', '\n',  '\r': // consume 
+		case '{', '"': //consume the outermost delimiter only 
+			if spacesOnly || found {
+				break loop
+			}
+			found= true 
+		default:
+			break loop
+		}
+	}
+	end--
+	found= false 
+	comma := false
+loop1:
+	for ; end >= 0; end-- {
+		switch b[end] {
+		case ' ', '\t', '\n',  '\r': // consume 
+		case ',': //consume the outermost comma 
+			if spacesOnly || comma {
+				break loop1 
+			}
+			comma = true 
+		case '}', '"': //consume the outermost delimiter only 
+			if spacesOnly || found {
+				break loop1 
+			}
+			found= true 
+		default:
+			break loop1
+		}
+	}
+	// fmt.Printf("%s: %d,%d\n", string(ob), start, end)
+	return(string(b[start : end+1]))
+}

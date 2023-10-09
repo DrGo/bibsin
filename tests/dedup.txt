@@ -1,28 +1,50 @@
 6 duplicate sets found
 ************************************************************
-[van2019economic] has 2 occurrences in lines 
-./tests/scholar.bib:2023
+[hamad2019prenatal] has 2 occurrences in lines 
+./tests/scholar.bib:2168
 
-@article{van2019economic,
-title={Economic assessment of a high-dose versus a standard-dose influenza vaccine in the US Veteran population: Estimating the impact on hospitalization cost for cardio-respiratory disease},
-author={van Aalst, Robertus and Russo, Ellyn M and Neupane, Nabin and Mahmud, Salaheddin M and Mor, Vincent and Wilschut, Jan and Chit, Ayman and Postma, Maarten and Young-Xu, Yinong},
-journal={Vaccine},
-volume={37},
-number={32},
-pages={4499--4503},
+@article{hamad2019prenatal,
+title={Prenatal antibiotics exposure and the risk of autism spectrum disorders: A population-based cohort study},
+author={Hamad, Amani F and Alessi-Severini, Silvia and Mahmud, Salaheddin M and Brownell, Marni and Kuo, I Fan},
+journal={PLoS One},
+volume={14},
+number={8},
+pages={e0221921},
 year={2019},
-publisher={Elsevier},
+publisher={Public Library of Science San Francisco, CA USA},
 }
-./tests/scholar.bib:2797
+./tests/scholar.bib:2190
 
-@article{van2019economic,
-title={Economic Assessment Of A High Dose Versus A Standard Dose Influenza Vaccine In The Us Veteran Population: Estimating The Impact On Hospitalization Cost For Cardiovascular And Respiratory Disease},
-author={van Aalst, R and Russo, E and Neupane, N and Mahmud, S and Mor, V and Wilschut, J and Samson, S and Chit, A and Postma, M and Young-Xu, Y},
-journal={Value in Health},
-volume={22},
-pages={S405},
+@inproceedings{hamad2019prenatal,
+title={Prenatal antibiotics use and the risk of attention deficit hyperactivity disorder},
+author={Hamad, Amani and Alessi-Severini, Silvia and Mahmud, Salah and Brownell, Marni and Kuo, I Fan},
+booktitle={PHARMACOEPIDEMIOLOGY AND DRUG SAFETY},
+volume={28},
+pages={371--371},
 year={2019},
-publisher={Elsevier},
+organization={WILEY 111 RIVER ST, HOBOKEN 07030-5774, NJ USA},
+}
+************************************************************
+[van2005gastric] has 2 occurrences in lines 
+./tests/scholar.bib:944
+
+@article{van2005gastric,
+title={Gastric Volumes in Diabetic Patients Presenting for Day Stay Surgery: No Need for Rapid Sequence Induction?},
+author={van den Berg, Anton and Abdulaly Abeidi, FFARSCI and Mahmud, Salaheddin},
+journal={Anesthesiology},
+volume={103},
+pages={A629},
+year={2005},
+}
+./tests/scholar.bib:953
+
+@article{van2005gastric,
+title={Gastric volumes in patients with gastro-esophageal reflux disease (reflux): is a rapid sequence induction indicated?},
+author={van den Berg, Anton and Abeidi, A and Mahmud, Salaheddin},
+journal={Anesthesiology},
+volume={103},
+pages={A628},
+year={2005},
 }
 ************************************************************
 [righolt2019statin] has 2 occurrences in lines 
@@ -51,56 +73,6 @@ year={2019},
 publisher={American Association for Cancer Research},
 }
 ************************************************************
-[hamad2019prenatal] has 2 occurrences in lines 
-./tests/scholar.bib:2168
-
-@article{hamad2019prenatal,
-title={Prenatal antibiotics exposure and the risk of autism spectrum disorders: A population-based cohort study},
-author={Hamad, Amani F and Alessi-Severini, Silvia and Mahmud, Salaheddin M and Brownell, Marni and Kuo, I Fan},
-journal={PLoS One},
-volume={14},
-number={8},
-pages={e0221921},
-year={2019},
-publisher={Public Library of Science San Francisco, CA USA},
-}
-./tests/scholar.bib:2190
-
-@inproceedings{hamad2019prenatal,
-title={Prenatal antibiotics use and the risk of attention deficit hyperactivity disorder},
-author={Hamad, Amani and Alessi-Severini, Silvia and Mahmud, Salah and Brownell, Marni and Kuo, I Fan},
-booktitle={PHARMACOEPIDEMIOLOGY AND DRUG SAFETY},
-volume={28},
-pages={371--371},
-year={2019},
-organization={WILEY 111 RIVER ST, HOBOKEN 07030-5774, NJ USA},
-}
-************************************************************
-[renoux2015serotonin] has 2 occurrences in lines 
-./tests/scholar.bib:1066
-
-@article{renoux2015serotonin,
-title={Serotonin-norepinephrine reuptake inhibitors and the risk of AKI: a cohort study of eight administrative databases and meta-analysis},
-author={Renoux, Christel and Lix, Lisa M and Patenaude, Val\'erie and Bresee, Lauren C and Paterson, J Michael and Lafrance, Jean-Philippe and Tamim, Hala and Mahmud, Salaheddin M and Alsabbagh, Mhd Wasem and Hemmelgarn, Brenda and others},
-journal={Clinical journal of the American Society of Nephrology: CJASN},
-volume={10},
-number={10},
-pages={1716},
-year={2015},
-publisher={American Society of Nephrology},
-}
-./tests/scholar.bib:1138
-
-@inproceedings{renoux2015serotonin,
-title={Serotonin-norepinephrine Reuptake Inhibitors and the Risk of Acute Kidney Injury: A Cohort Study of Eight Administrative Databases and Meta-analysis},
-author={Renoux, Christel and Lix, Lisa M and Patenaude, Valerie and Bresee, Lauren C and Paterson, Michael J and Lafrance, Jean-Philippe and Tamim, Hala and Mahmud, Salaheddin M and Alsabbagh, Wasem and Hemmelgarn, Brenda and others},
-booktitle={PHARMACOEPIDEMIOLOGY AND DRUG SAFETY},
-volume={24},
-pages={423--424},
-year={2015},
-organization={WILEY-BLACKWELL 111 RIVER ST, HOBOKEN 07030-5774, NJ USA},
-}
-************************************************************
 [okoli2020seasonal] has 2 occurrences in lines 
 ./tests/scholar.bib:2429
 
@@ -126,24 +98,52 @@ year={2020},
 organization={WILEY 111 RIVER ST, HOBOKEN 07030-5774, NJ USA},
 }
 ************************************************************
-[van2005gastric] has 2 occurrences in lines 
-./tests/scholar.bib:944
+[renoux2015serotonin] has 2 occurrences in lines 
+./tests/scholar.bib:1066
 
-@article{van2005gastric,
-title={Gastric Volumes in Diabetic Patients Presenting for Day Stay Surgery: No Need for Rapid Sequence Induction?},
-author={van den Berg, Anton and Abdulaly Abeidi, FFARSCI and Mahmud, Salaheddin},
-journal={Anesthesiology},
-volume={103},
-pages={A629},
-year={2005},
+@article{renoux2015serotonin,
+title={Serotonin-norepinephrine reuptake inhibitors and the risk of AKI: a cohort study of eight administrative databases and meta-analysis},
+author={Renoux, Christel and Lix, Lisa M and Patenaude, Val{\'e}rie and Bresee, Lauren C and Paterson, J Michael and Lafrance, Jean-Philippe and Tamim, Hala and Mahmud, Salaheddin M and Alsabbagh, Mhd Wasem and Hemmelgarn, Brenda and others},
+journal={Clinical journal of the American Society of Nephrology: CJASN},
+volume={10},
+number={10},
+pages={1716},
+year={2015},
+publisher={American Society of Nephrology},
 }
-./tests/scholar.bib:953
+./tests/scholar.bib:1138
 
-@article{van2005gastric,
-title={Gastric volumes in patients with gastro-esophageal reflux disease (reflux): is a rapid sequence induction indicated?},
-author={van den Berg, Anton and Abeidi, A and Mahmud, Salaheddin},
-journal={Anesthesiology},
-volume={103},
-pages={A628},
-year={2005},
+@inproceedings{renoux2015serotonin,
+title={Serotonin-norepinephrine Reuptake Inhibitors and the Risk of Acute Kidney Injury: A Cohort Study of Eight Administrative Databases and Meta-analysis},
+author={Renoux, Christel and Lix, Lisa M and Patenaude, Valerie and Bresee, Lauren C and Paterson, Michael J and Lafrance, Jean-Philippe and Tamim, Hala and Mahmud, Salaheddin M and Alsabbagh, Wasem and Hemmelgarn, Brenda and others},
+booktitle={PHARMACOEPIDEMIOLOGY AND DRUG SAFETY},
+volume={24},
+pages={423--424},
+year={2015},
+organization={WILEY-BLACKWELL 111 RIVER ST, HOBOKEN 07030-5774, NJ USA},
+}
+************************************************************
+[van2019economic] has 2 occurrences in lines 
+./tests/scholar.bib:2023
+
+@article{van2019economic,
+title={Economic assessment of a high-dose versus a standard-dose influenza vaccine in the US Veteran population: Estimating the impact on hospitalization cost for cardio-respiratory disease},
+author={van Aalst, Robertus and Russo, Ellyn M and Neupane, Nabin and Mahmud, Salaheddin M and Mor, Vincent and Wilschut, Jan and Chit, Ayman and Postma, Maarten and Young-Xu, Yinong},
+journal={Vaccine},
+volume={37},
+number={32},
+pages={4499--4503},
+year={2019},
+publisher={Elsevier},
+}
+./tests/scholar.bib:2797
+
+@article{van2019economic,
+title={Economic Assessment Of A High Dose Versus A Standard Dose Influenza Vaccine In The Us Veteran Population: Estimating The Impact On Hospitalization Cost For Cardiovascular And Respiratory Disease},
+author={van Aalst, R and Russo, E and Neupane, N and Mahmud, S and Mor, V and Wilschut, J and Samson, S and Chit, A and Postma, M and Young-Xu, Y},
+journal={Value in Health},
+volume={22},
+pages={S405},
+year={2019},
+publisher={Elsevier},
 }

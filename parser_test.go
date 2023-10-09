@@ -10,10 +10,13 @@ import (
 	"github.com/drgo/core/tu"
 )
 
-const bib1 = ` 
-%@string{goossens = "Goossens, Michel"}
+func init() {
+	tu.Debug= true 
+}
 
-%This line is an implicit comment.
+const bib1 = ` @string{goossens = "Goossens, Michel"}
+
+This line is an implicit comment.
 
 @article{FuMetalhalideperovskite2019,
     author = "Yongping Fu and Haiming Zhu and Jie Chen and Matthew P. Hautzinger and X.-Y. Zhu and Song Jin",
@@ -29,12 +32,12 @@ const bib1 = `
     year = {2019}
 }
 
-%@comment{
-%    This is a comment.
-%    Spanning over two lines.
-%}
+@comment{
+    This is a comment.
+    Spanning over two lines.
+}
 
-%@preamble{e = mc^2}
+@preamble{e = mc^2}
 
 @article{SunEnablingSiliconSolar2014,
     author = {Ke Sun and Shaohua Shen and Yongqi Liang and Paul E. Burrows and Samuel S. Mao and Deli Wang},
@@ -51,7 +54,7 @@ const bib1 = `
 }
 
 
-%@string{mittelbach="Mittelbach, Franck"}
+@string{mittelbach="Mittelbach, Franck"}
 
 @inproceedings{LiuPhotocatalytichydrogenproduction2016,
     author = {Maochang Liu and Yubin Chen and Jinzhan Su and Jinwen Shi and Xixi Wang and Liejin Guo},
@@ -69,13 +72,38 @@ const bib1 = `
 }
 
 
-%@Comment{This is another comment}
+@Comment{This is another comment}
 `
 
+const bib =`@article{FuMetalhalideperovskite2019,
+    author = "Yongping Fu and Haiming Zhu and Jie Chen and Matthew P. Hautzinger and X.-Y. Zhu and Song Jin",
+    doi = {10.1038/s41578-019-0080-9},
+    journal = {Nature Reviews Materials},
+    month = {feb},
+    number = {3},
+    pages = {169-188},
+    publisher = {Springer Science and Business Media {LLC}},
+    title = {Metal halide perovskite nanostructures for optoelectronic applications and the study of physical properties},
+    url = {https://www.nature.com/articles/s41578-019-0080-9},
+    volume = {4},
+    year = {2019}
+}
+`
 func TestParser(t *testing.T) {
 	n, err := Parse(strings.NewReader(bib1), "bib1", Options{})
 	tu.Equal(t, err, nil, tu.FailNow)
 	tu.NotNil(t, n, tu.FailNow)
+	Print(os.Stdout, n)
+	tu.Equal(t, len(n.Children()), 3, tu.FailNow)
+	c:= n.Children()[0].(*Record)
+	tu.Equal(t, c.Value(), "article")
+	tu.Equal(t, c.Key(), "FuMetalhalideperovskite2019")
+
+	tu.Equal(t, len(c.Children()), 11)
+	month:= c.Children()[3]
+	tu.Equal(t, month.Key(), "month")
+	tu.Equal(t, month.Value(), "feb")
+    // tu.Equal(t, c.Field("pages"), "16151", tu.FailNow)
 }
 
 func parseTestFile(t *testing.T, filename string) Node {
@@ -119,6 +147,15 @@ func TestOnlyASCIIAlphaNumeric(t *testing.T) {
 			tu.Equal(t, onlyASCIAlphaNumeric(test.in), test.out)
 		})
 	}
+}
+
+func TestDedupByKey(t *testing.T) {
+	n1 := parseTestFile(t, "tests/scholar-dup.bib")
+	_, dr, err := Deduplicate([]Node{n1}, []string{}, SetNoAction)
+	tu.NotNil(t, dr, tu.FailNow)
+	tu.Equal(t, err, nil)
+	tu.Equal(t, dr.DuplicateSetCount, 3)
+	fmt.Println(dr)
 }
 
 func TestDedupByContent(t *testing.T) {
@@ -201,14 +238,42 @@ func TestSort(t *testing.T) {
 	tu.Equal(t, err, nil)
 }
 
-
 func TestFixKeys(t *testing.T) {
 	n1 := parseTestFile(t, "tests/sorted.bib")
 	err := saveWith("./tests/fixdup.bib", func(w io.Writer) error {
-		err, _ := FixKeys(n1, nil, true) // all=false: only generate keys for missing keys 
-		tu.Equal(t, err, nil)
-		return Print(w, n1)
+	    dr, err := FixKeys(n1, nil , false) // all=false: only generate keys for missing keys
+		tu.Equal(t, err, nil, tu.FailNow)
+		// tu.PL(err)
+		Print(w, n1)
+		dr.Print(os.Stdout)
+		return nil // Print(w, n1)
 	})
 	tu.Equal(t, err, nil)
-	tu.Equal(t, ValidKeys(n1), false)
+	tu.Equal(t, ValidKeys(n1), true)
+	
+}
+
+func TestTrimAffixes(t *testing.T) {
+	tests := []struct {
+		in  string
+		out string
+		spacesOnly bool 
+	}{
+		{`"test name"`, `test name`, false},
+		{` {"test1"}`, `"test1"`, false},
+		{` {"test2"},`, `"test2"`, false},
+		{` {"test3"}`   , `"test3"`, false},
+		{`FuMetalhalideperovskite2019,` , `FuMetalhalideperovskite2019`, false},
+		{`{}`, ``, false},
+		{`{},`, ``, false},
+		{`"  {}""`, `{}"`, false},
+		{``, ``, false},
+		{` {"spaces"}	`, `{"spaces"}`, true},
+	}
+	for _, test := range tests {
+		t.Run(test.in, func(t *testing.T) {
+			s := []byte(test.in)
+			tu.Equal(t, trimAffixes(s, test.spacesOnly), test.out)
+		})
+	}
 }
