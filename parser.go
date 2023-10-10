@@ -28,7 +28,7 @@ type Options struct {
 
 // Parse parses a Google scholar bibtex export provided as io.Reader or
 // a name of a file.
-func Parse(r io.Reader, fileName string, opts Options) (Node, error) {
+func Parse(r io.Reader, fileName string, opts Options) (*File, error) {
 	if r == nil {
 		if fileName == "" {
 			return nil, fmt.Errorf("nothign to parse")
@@ -96,17 +96,17 @@ func (p *parser) readLine() ([]byte, error) {
 // 	return r
 // }
 
-func (p *parser) parse() (Node, error) {
+func (p *parser) parse() (*File, error) {
 	root := newRoot(p.fileName)
 	var (
 		scanErr error
 		line    []byte
+		currentNode *Record
 	)
-	result := func(msg string) (Node, error) {
+	result := func(msg string) (*File, error) {
 		//TODO: add error msgs
 		return root, fmt.Errorf("parsing error at %d: %s", p.lineNum, msg)
 	}
-	currentNode := root
 	ignored := false 
 mainloop:
 	for scanErr == nil {
@@ -121,7 +121,7 @@ mainloop:
 		// 'string' (a macro) read value and store in a map
 		//TODO: allow use of ( instead of {; set righ delimiter to ) or }
 		switch {
-		case line[0] == AT && !currentNode.IsRoot():
+		case line[0] == AT && currentNode!= nil:
 			return result("invalid @; possibly record missing line starting with }")
 		case line[0] == AT:
 			// we are at root and we have a line starting with @, parse a record header
@@ -147,14 +147,14 @@ mainloop:
 			// continue mainloop
 		case line[0] == RBRACE && ignored:
 			ignored = false 
-		case line[0] == RBRACE && currentNode.IsRoot():
+		case line[0] == RBRACE && currentNode == nil:
 			return result("} outside a record")
 		case line[0] == RBRACE:
 			//add node to root and switch to root
-			root.addChild(currentNode)
-			currentNode = root
+			root.AddRecord(currentNode)
+			currentNode = nil
 		default:
-			if ignored || currentNode.IsRoot() { // text directly under root or ignored
+			if ignored || currentNode == nil { // text directly under root or ignored
 				// line = nil
 				continue mainloop
 			}
@@ -165,12 +165,12 @@ mainloop:
 			}
 			fldname:= trimAffixes(line[:idx], true)
 			value:= trimAffixes(line[idx+1:], false)
-			fld := &Field{
+			fld := Field{
 				value: string(value),
 				key:  fldname, 
 				line:  p.lineNum}
 			// fmt.Printf("%s\n", fld.value)
-			currentNode.addChild(fld)
+			currentNode.addField(fld)
 			// comma is normally optional before the record's closing RBRACE,
 			// but here always it is always optional
 		}

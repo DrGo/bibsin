@@ -90,23 +90,23 @@ const bib =`@article{FuMetalhalideperovskite2019,
 }
 `
 func TestParser(t *testing.T) {
-	n, err := Parse(strings.NewReader(bib1), "bib1", Options{})
+	f, err := Parse(strings.NewReader(bib1), "bib1", Options{})
 	tu.Equal(t, err, nil, tu.FailNow)
-	tu.NotNil(t, n, tu.FailNow)
-	Print(os.Stdout, n)
-	tu.Equal(t, len(n.Children()), 3, tu.FailNow)
-	c:= n.Children()[0].(*Record)
+	tu.NotNil(t, f, tu.FailNow)
+	Print(os.Stdout, f)
+	tu.Equal(t, len(f.Records), 3, tu.FailNow)
+	c:= f.Records[0]
 	tu.Equal(t, c.Value(), "article")
 	tu.Equal(t, c.Key(), "FuMetalhalideperovskite2019")
 
-	tu.Equal(t, len(c.Children()), 11)
-	month:= c.Children()[3]
+	tu.Equal(t, len(c.fields), 11)
+	month:= c.fields[3]
 	tu.Equal(t, month.Key(), "month")
 	tu.Equal(t, month.Value(), "feb")
     // tu.Equal(t, c.Field("pages"), "16151", tu.FailNow)
 }
 
-func parseTestFile(t *testing.T, filename string) Node {
+func parseTestFile(t *testing.T, filename string) *File {
 	t.Helper()
 	n, err := Parse(nil, filename, Options{})
 	tu.Equal(t, err, nil, tu.FailNow)
@@ -116,8 +116,7 @@ func parseTestFile(t *testing.T, filename string) Node {
 
 func TestParseFile(t *testing.T) {
 	n := parseTestFile(t, "tests/scholar20.bib")
-	rn := n.(*Record)
-	tu.Equal(t, len(rn.children), 20)
+	tu.Equal(t, n.RecordCount(), 20)
 	Print(os.Stdout, n)
 	//TODO: add tests
 }
@@ -151,7 +150,7 @@ func TestOnlyASCIIAlphaNumeric(t *testing.T) {
 
 func TestDedupByKey(t *testing.T) {
 	n1 := parseTestFile(t, "tests/scholar-dup.bib")
-	_, dr, err := Deduplicate([]Node{n1}, []string{}, SetNoAction)
+	_, dr, err := Deduplicate([]*File{n1}, []string{}, SetNoAction)
 	tu.NotNil(t, dr, tu.FailNow)
 	tu.Equal(t, err, nil)
 	tu.Equal(t, dr.DuplicateSetCount, 3)
@@ -160,30 +159,30 @@ func TestDedupByKey(t *testing.T) {
 
 func TestDedupByContent(t *testing.T) {
 	n1 := parseTestFile(t, "tests/scholar-dup.bib")
-	_, dr, err := Deduplicate([]Node{n1}, []string{"year", "journal"}, SetNoAction)
+	_, dr, err := Deduplicate([]*File{n1}, []string{"year", "journal"}, SetNoAction)
 	tu.NotNil(t, dr, tu.FailNow)
 	tu.Equal(t, err, nil)
 	tu.Equal(t, dr.DuplicateSetCount, 3)
 	fmt.Println(dr)
 
 	n2 := parseTestFile(t, "tests/scholar20.bib")
-	_, dr, err = Deduplicate([]Node{n1, n2}, []string{"year", "journal"}, SetNoAction)
+	_, dr, err = Deduplicate([]*File{n1, n2}, []string{"year", "journal"}, SetNoAction)
 	tu.NotNil(t, dr, tu.FailNow)
 	tu.Equal(t, err, nil)
 	tu.Equal(t, dr.DuplicateSetCount, 3)
 	fmt.Println(dr)
 
-	res, dr, err := Deduplicate([]Node{n1, n2}, []string{"year", "journal"}, SetIntersect)
+	res, dr, err := Deduplicate([]*File{n1, n2}, []string{"year", "journal"}, SetIntersect)
 	tu.Equal(t, err, nil)
 	tu.NotNil(t, dr, tu.FailNow)
 	tu.NotNil(t, res, tu.FailNow)
-	tu.Equal(t, len(res.Children()), 20)
+	tu.Equal(t, len(res.Records), 20)
 
-	res, dr, err = Deduplicate([]Node{n1, n2}, []string{"year", "journal"}, SetUnion)
+	res, dr, err = Deduplicate([]*File{n1, n2}, []string{"year", "journal"}, SetUnion)
 	tu.Equal(t, err, nil)
 	tu.NotNil(t, dr, tu.FailNow)
 	tu.NotNil(t, res, tu.FailNow)
-	tu.Equal(t, len(res.Children()), 20)
+	tu.Equal(t, len(res.Records), 20)
 
 }
 
@@ -192,17 +191,17 @@ func ExampleDeduplicateByContents() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("%d records found\n", len(ccv.Children()))
+	fmt.Printf("%d records found\n", len(ccv.Records))
 	scholar, err := Parse(nil, "./tests/scholar.bib", Options{})
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("%d records found\n", len(scholar.Children()))
-	_, dr, err := Deduplicate([]Node{ccv, scholar}, []string{"year", "title"}, SetNoAction)
+	fmt.Printf("%d records found\n", len(scholar.Records))
+	_, dr, err := Deduplicate([]*File{ccv, scholar}, []string{"year", "title"}, SetNoAction)
 	if err != nil {
 		panic(err)
 	}
-	// fmt.Printf("%d records found\n", len(res.Children()))
+	// fmt.Printf("%d records found\n", len(res.Records))
 	// fmt.Println(dr)
 	err = saveWith("./tests/dedup.txt", func(w io.Writer) (err error) {
 		return dr.Print(w)
@@ -212,7 +211,7 @@ func ExampleDeduplicateByContents() {
 	}
 
 	err = saveWith("./tests/merged.bib", func(w io.Writer) error {
-		n, dr, err := Deduplicate([]Node{ccv, scholar}, []string{"year", "title"}, SetUnion)
+		n, dr, err := Deduplicate([]*File{ccv, scholar}, []string{"year", "title"}, SetUnion)
 		if err != nil {
 			return err
 		}

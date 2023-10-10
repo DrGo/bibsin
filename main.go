@@ -22,7 +22,7 @@ const (
 
 type NodeInfo struct {
 	Node   *Record
-	Parent *Record
+	Parent *File
 }
 
 type DedupMap = map[string][]NodeInfo
@@ -43,7 +43,7 @@ func (dr *DedupReport) Print(w io.Writer) (err error) {
 			_, err = fmt.Fprintf(w, "%s\n[%s] has %d occurrences in lines \n", strings.Repeat("*", 60), idxTerm, ndup)
 			for _, n := range nodes {
 				// write filename: line
-				_, err = fmt.Fprintf(w, "%s:%d\n", n.Parent.Value(), n.Node.Line())
+				_, err = fmt.Fprintf(w, "%s:%d\n", n.Parent.Name(), n.Node.Line())
 				err = Print(w, n.Node)
 			}
 		}
@@ -68,9 +68,8 @@ func (dr DedupReport) String() string {
 //	}
 //
 // indexEntry returns a string concating values of fields
-func indexEntry(n Node, fldNames []string, raw bool) string {
+func indexEntry(rec *Record, fldNames []string, raw bool) string {
 	var sb strings.Builder
-	rec := n.(*Record)
 	for _, fldname := range fldNames {
 		sb.WriteString(rec.Field(fldname))
 	}
@@ -85,16 +84,16 @@ func indexEntry(n Node, fldNames []string, raw bool) string {
 // citekey is used to deduplicate the set.
 // if no error encountered, it returns a DedupReport struct if action== SetNoAction
 // and additionally a set of processed refs if action != SetNoAction
-func Deduplicate(nodes []Node, fldNames []string, action SetActionType) (Node, *DedupReport, error) {
-	if len(nodes)*len(nodes[0].Children()) == 0 {
+func Deduplicate(files []*File, fldNames []string, action SetActionType) (*File, *DedupReport, error) {
+	if len(files)*files[0].RecordCount() == 0 {
 		return nil, nil, fmt.Errorf("nothing to deduplicate")
 	}
 	hasFields := len(fldNames) > 0
 	citekey := !hasFields || slices.Contains(fldNames, "citekey")
 	// print("citekey"); print(citekey)
-	dupSet := make(DedupMap, len(nodes[0].Children())*len(nodes))
-	for _, r := range nodes {
-		for _, c := range r.Children() {
+	dupSet := make(DedupMap, files[0].RecordCount()*len(files))
+	for _, r := range files {
+		for _, c := range r.Records {
 			idx := ""
 			if hasFields {
 				idx = indexEntry(c, fldNames, false)
@@ -102,7 +101,7 @@ func Deduplicate(nodes []Node, fldNames []string, action SetActionType) (Node, *
 			if citekey {
 				idx = idx + c.Key()
 			}
-			dupSet[idx] = append(dupSet[idx], NodeInfo{c.(*Record), r.(*Record)})
+			dupSet[idx] = append(dupSet[idx], NodeInfo{c, r})
 		}
 	}
 	duplicateSets := 0
@@ -120,9 +119,9 @@ func Deduplicate(nodes []Node, fldNames []string, action SetActionType) (Node, *
 			return nil, nil, fmt.Errorf("no common records")
 		}
 		res := newRoot("intersection.bib")
-		for _, nodes := range dupSet {
-			if ndup := len(nodes); ndup > 1 { //duplicates
-				res.addChild(nodes[0].Node) //print the first in the set
+		for _, recs := range dupSet {
+			if ndup := len(recs); ndup > 1 { //duplicates
+				res.AddRecord(recs[0].Node) //print the first in the set
 				dr.ResultSetCount++
 			}
 		}
@@ -130,8 +129,8 @@ func Deduplicate(nodes []Node, fldNames []string, action SetActionType) (Node, *
 	}
 	if action == SetUnion {
 		res := newRoot("union.bib")
-		for _, nodes := range dupSet {
-			res.addChild(nodes[0].Node)
+		for _, recs := range dupSet {
+			res.AddRecord(recs[0].Node)
 			dr.ResultSetCount++
 		}
 		return res, dr, nil
@@ -140,8 +139,8 @@ func Deduplicate(nodes []Node, fldNames []string, action SetActionType) (Node, *
 }
 
 // ValidKeys checks if all records have citekeys and all are unique
-func ValidKeys(n Node) bool {
-	_, dr, err := Deduplicate([]Node{n}, []string{}, SetNoAction)
+func ValidKeys(n *File) bool {
+	_, dr, err := Deduplicate([]*File{n}, []string{}, SetNoAction)
 	if err != nil {
 		return true // only error is nothign to duplicate
 	}
@@ -174,11 +173,9 @@ func NewCiteKey(rec *Record) string {
 // with a,b,c etc added to ensure uniqueness; if len(fldnames)== 0
 // standard algorithm to create new citekeys. if all is true
 // all keys are replaced not just duplicate records
-func FixKeys(n Node, fldnames []string, all bool) (*DedupReport, error) {
+func FixKeys(f *File, fldnames []string, all bool) (*DedupReport, error) {
 	useStd := len(fldnames) == 0
-	ns := n.(*Record).children
-	for i := 0; i < len(ns); i++ {
-		rec := ns[i].(*Record)
+	for _, rec:= range f.Records { 
 		if all || rec.key == "" {
 			if useStd {
 				rec.key = NewCiteKey(rec)
@@ -188,7 +185,7 @@ func FixKeys(n Node, fldnames []string, all bool) (*DedupReport, error) {
 		}
 	}
 	// dedup in terms of citykey
-	_, dr, err := Deduplicate([]Node{n}, []string{}, SetNoAction)
+	_, dr, err := Deduplicate([]*File{f}, []string{}, SetNoAction)
 	if err != nil {
 		return nil, err
 	}
@@ -207,15 +204,14 @@ func FixKeys(n Node, fldnames []string, all bool) (*DedupReport, error) {
 }
 
 // Split splits a set into a separate set for each citation type
-func Split(n Node) map[string]Node {
-	res := make(map[string]Node, 10)
-	ns := n.(*Record).children
-	for i := 0; i < len(ns); i++ {
-		sub, ok := res[ns[i].Value()]
+func Split(f *File) map[string]*File {
+	res := make(map[string]*File, 10)
+	for _, rec := range f.Records {
+		sub, ok := res[rec.Value()]
 		if !ok {
-			sub = newRoot(ns[i].Value())
+			sub = newRoot(rec.Value())
 		}
-		sub.(*Record).addChild(ns[i])
+		sub.AddRecord(rec)
 	}
 	return res
 }

@@ -5,24 +5,33 @@ import (
 	"io"
 )
 
-type Node interface {
-	IsRoot() bool
-	Line() int
-	Key() string
-	Value() string
-	BibtexRepr() string
-	Children() []Node
+type File struct {
+	Records []*Record
+	name string 
+}
+
+func (f *File) AddRecord(rec *Record){
+	f.Records=append(f.Records, rec)
+}
+
+
+func (f *File) RecordCount()int{
+	return len(f.Records)
+}
+
+func (f *File) Name()string{
+	return f.name
+}
+
+func newRoot(fileName string) *File {
+	return &File{name: fileName}
 }
 
 type Record struct {
-	children []Node
+	fields []Field
 	key      string // citation key; ROOT for root node
-	value    string // bibtex type
+	value    string // bibtex type; filenamme for root node 
 	line     int
-}
-
-func (rec *Record) IsRoot() bool {
-	return rec.key == "__ROOT__"
 }
 
 func (rec *Record) Line() int {
@@ -40,17 +49,16 @@ func (rec *Record) BibtexRepr() string {
 	return fmt.Sprintf("\n@%s{%s,\n", rec.value, rec.key)
 }
 
-func (n *Record) Children() []Node {
-	return n.children
-}
+// func (n *Record) Children() []Node {
+// 	return n.children
+// }
 
-func (n *Record) addChild(c Node) {
-	n.children = append(n.children, c)
+func (n *Record) addField(c Field) {
+	n.fields = append(n.fields, c)
 }
 
 func (n *Record) Field(fieldName string) string {
-	for _, fld := range n.children {
-		fld := fld.(*Field)
+	for _, fld := range n.fields {
 		if fld.key == fieldName {
 			return fld.value
 		}
@@ -62,10 +70,6 @@ type Field struct {
 	key   string // name of field
 	value string // value of field
 	line  int
-}
-
-func (rec *Field) IsRoot() bool {
-	return false
 }
 
 func (rec *Field) Line() int {
@@ -83,34 +87,25 @@ func (rec *Field) BibtexRepr() string {
 	return fmt.Sprintf("%s={%s}", rec.key, rec.value)
 }
 
-func (n *Field) Children() []Node {
-	return nil
-}
 
-func newRoot(fileName string) *Record {
-	return &Record{key: "__ROOT__", value: fileName}
-}
-
-func Print(w io.Writer, n Node) error {
+func Print(w io.Writer, n any) error {
 	//FIXME: check for errors
 	switch n := n.(type) {
-	case *Record:
-		if n.IsRoot() {
-			for _, c := range n.children {
+	case *File:
+			for _, c := range n.Records {
 				Print(w, c)
 			}
 			return nil
-		}
-		// record
+	case *Record:		
 		fmt.Fprintf(w, n.BibtexRepr())
-		for i, c := range n.children {
+		for i, c := range n.fields {
 			Print(w, c)
-			if i < len(n.children) {
+			if i < len(n.fields) {
 				fmt.Fprintln(w, ",")
 			}
 		}
 		fmt.Fprintln(w, "}")
-	case *Field:
+	case Field:
 		fmt.Fprintf(w, n.BibtexRepr())
 	default:
 		return fmt.Errorf("Unknown Node type")
