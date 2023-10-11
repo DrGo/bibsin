@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ import (
 )
 
 func init() {
-	tu.Debug= true 
+	tu.Debug = true
 }
 
 const bib1 = ` @string{goossens = "Goossens, Michel"}
@@ -75,7 +76,7 @@ This line is an implicit comment.
 @Comment{This is another comment}
 `
 
-const bib =`@article{FuMetalhalideperovskite2019,
+const bib2 = `@article{FuMetalhalideperovskite2019,
     author = "Yongping Fu and Haiming Zhu and Jie Chen and Matthew P. Hautzinger and X.-Y. Zhu and Song Jin",
     doi = {10.1038/s41578-019-0080-9},
     journal = {Nature Reviews Materials},
@@ -89,21 +90,22 @@ const bib =`@article{FuMetalhalideperovskite2019,
     year = {2019}
 }
 `
+
 func TestParser(t *testing.T) {
 	f, err := Parse(strings.NewReader(bib1), "bib1", Options{})
 	tu.Equal(t, err, nil, tu.FailNow)
 	tu.NotNil(t, f, tu.FailNow)
 	Print(os.Stdout, f)
 	tu.Equal(t, len(f.Records), 3, tu.FailNow)
-	c:= f.Records[0]
+	c := f.Records[0]
 	tu.Equal(t, c.Value(), "article")
 	tu.Equal(t, c.Key(), "FuMetalhalideperovskite2019")
 
 	tu.Equal(t, len(c.fields), 11)
-	month:= c.fields[3]
+	month := c.fields[3]
 	tu.Equal(t, month.Key(), "month")
 	tu.Equal(t, month.Value(), "feb")
-    // tu.Equal(t, c.Field("pages"), "16151", tu.FailNow)
+	// tu.Equal(t, c.Field("pages"), "16151", tu.FailNow)
 }
 
 func parseTestFile(t *testing.T, filename string) *File {
@@ -186,6 +188,48 @@ func TestDedupByContent(t *testing.T) {
 
 }
 
+func TestDedupBib(t *testing.T) {
+	pr := func(f *File, err error, expect int) {
+		if err != nil {
+			panic(err)
+		}
+		if f == nil {
+			return
+		}
+		tu.P("%s %d records found\n", f.name, f.RecordCount())
+		tu.Equal(t, f.RecordCount(), expect)
+	}
+	bib1, err := Parse(strings.NewReader(bib1), "bib1", Options{})
+	pr(bib1, err, 3)
+	bib2, err := Parse(strings.NewReader(bib2), "bib2", Options{})
+	pr(bib2, err, 1)
+	res, dr, err := Deduplicate([]*File{bib2, bib1}, []string{"year", "title"}, SetNoAction)
+	pr(res, err, -1)
+	// fmt.Println(dr)
+	err = saveWith("./tests/dedup.txt", func(w io.Writer) (err error) {
+		return dr.Print(w)
+	})
+	pr(res, err, -1)
+
+	f, dr, err := Deduplicate([]*File{bib2, bib1}, []string{"year", "title"}, SetIntersect)
+	pr(f, err, 1)
+	tu.P("%d records processed\n", dr.ResultSetCount)
+	tu.Equal(t, dr.ResultSetCount, 1)
+
+	err = saveWith("./tests/bibmerged.bib", func(w io.Writer) error {
+		f, dr, err := Deduplicate([]*File{bib2, bib1}, []string{"year", "title"}, SetUnion)
+		pr(f, err, 3)
+		tu.P("%d records processed\n", dr.ResultSetCount)
+		tu.Equal(t, dr.ResultSetCount, 3)
+		return Print(w, f)
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	// Output: 413 records found
+}
 func ExampleDeduplicateByContents() {
 	ccv, err := Parse(nil, "./tests/salah.bib", Options{})
 	if err != nil {
@@ -240,7 +284,7 @@ func TestSort(t *testing.T) {
 func TestFixKeys(t *testing.T) {
 	n1 := parseTestFile(t, "tests/sorted.bib")
 	err := saveWith("./tests/fixdup.bib", func(w io.Writer) error {
-	    dr, err := FixKeys(n1, nil , false) // all=false: only generate keys for missing keys
+		dr, err := FixKeys(n1, nil, false) // all=false: only generate keys for missing keys
 		tu.Equal(t, err, nil, tu.FailNow)
 		// tu.PL(err)
 		Print(w, n1)
@@ -249,20 +293,20 @@ func TestFixKeys(t *testing.T) {
 	})
 	tu.Equal(t, err, nil)
 	tu.Equal(t, ValidKeys(n1), true)
-	
+
 }
 
 func TestTrimAffixes(t *testing.T) {
 	tests := []struct {
-		in  string
-		out string
-		spacesOnly bool 
+		in         string
+		out        string
+		spacesOnly bool
 	}{
 		{`"test name"`, `test name`, false},
 		{` {"test1"}`, `"test1"`, false},
 		{` {"test2"},`, `"test2"`, false},
-		{` {"test3"}`   , `"test3"`, false},
-		{`FuMetalhalideperovskite2019,` , `FuMetalhalideperovskite2019`, false},
+		{` {"test3"}`, `"test3"`, false},
+		{`FuMetalhalideperovskite2019,`, `FuMetalhalideperovskite2019`, false},
 		{`{}`, ``, false},
 		{`{},`, ``, false},
 		{`"  {}""`, `{}"`, false},
@@ -275,4 +319,27 @@ func TestTrimAffixes(t *testing.T) {
 			tu.Equal(t, trimAffixes(s, test.spacesOnly), test.out)
 		})
 	}
+}
+
+func TestSplit(t *testing.T) {
+	srcf := parseTestFile(t, "tests/fixdup.bib")
+	files := Split(srcf) // all=false: only generate keys for missing keys
+	tu.Equal(t, len(files), 6)
+	for name, f := range files {
+		for i := 0; i < 2; i++ {
+			_, dr, err := Deduplicate([]*File{f}, []string{"year", "title"}, SetUnion)
+			if err != nil {
+				panic(err)
+			}
+			tu.PL(name, dr.DuplicateSetCount, "\n")
+		}
+		saveWith(filepath.Join("./tests/sub", name+".bib"), func(w io.Writer) error {
+			Print(w, f)
+			return nil
+
+		})
+	}
+	// tu.Equal(t, err, nil)
+	// tu.Equal(t, ValidKeys(f), true)
+
 }

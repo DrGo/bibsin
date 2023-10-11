@@ -210,6 +210,7 @@ func Split(f *File) map[string]*File {
 		sub, ok := res[rec.Value()]
 		if !ok {
 			sub = newRoot(rec.Value())
+			res[rec.Value()]= sub
 		}
 		sub.AddRecord(rec)
 	}
