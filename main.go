@@ -175,7 +175,7 @@ func NewCiteKey(rec *Record) string {
 // all keys are replaced not just duplicate records
 func FixKeys(f *File, fldnames []string, all bool) (*DedupReport, error) {
 	useStd := len(fldnames) == 0
-	for _, rec:= range f.Records { 
+	for _, rec := range f.Records {
 		if all || rec.key == "" {
 			if useStd {
 				rec.key = NewCiteKey(rec)
@@ -203,6 +203,40 @@ func FixKeys(f *File, fldnames []string, all bool) (*DedupReport, error) {
 	return dr, nil
 }
 
+// FixTypes uses a heuristic and information avaiable in the keywords field if any
+// to generate a more sensible bibliographic types
+func FixTypes(f *File) error {
+	kws, typ := "", ""
+	haskw := func(sub string) bool {
+		// if sub=="any" {}
+		return kws != "" && strings.Index(kws, sub) > -1
+	}
+	for _, rec := range f.Records {
+		kws = rec.Field("keywords")
+		typ = rec.value
+		//we have keywords
+		switch typ {
+		case "book":
+			if !haskw("book") {
+				rec.value = "report"
+			}
+		case "incollection", "periodical":
+			rec.value = "article"
+		case "inproceedings", "presentation":
+			rec.value = "presentations"
+		case "misc":
+			rec.value = kws
+			if haskw("registered") {
+				rec.value = "copyrights"
+			}
+			if rec.value == "" {
+				rec.value = "other"
+			}
+		}
+	}
+	return nil
+}
+
 // Split splits a set into a separate set for each citation type
 func Split(f *File) map[string]*File {
 	res := make(map[string]*File, 10)
@@ -210,7 +244,7 @@ func Split(f *File) map[string]*File {
 		sub, ok := res[rec.Value()]
 		if !ok {
 			sub = newRoot(rec.Value())
-			res[rec.Value()]= sub
+			res[rec.Value()] = sub
 		}
 		sub.AddRecord(rec)
 	}

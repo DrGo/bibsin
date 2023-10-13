@@ -323,7 +323,7 @@ func TestTrimAffixes(t *testing.T) {
 
 func TestSplit(t *testing.T) {
 	srcf := parseTestFile(t, "tests/fixdup.bib")
-	files := Split(srcf) // all=false: only generate keys for missing keys
+	files := Split(srcf) 
 	tu.Equal(t, len(files), 6)
 	for name, f := range files {
 		for i := 0; i < 2; i++ {

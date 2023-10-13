@@ -10,11 +10,11 @@ const (
 	Missing = 1<<32 - 1
 )
 
-func Sort(f *File , flds string) error {
+func Sort(f *File, flds string) error {
 	if f.RecordCount() == 0 {
 		return fmt.Errorf("nothing to sort")
 	}
-	// special common case case  
+	// special common case case
 	if flds == "type,-year" {
 		recs := f.Records
 		sort.Slice(recs, func(i, j int) bool {
